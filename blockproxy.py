@@ -65,7 +65,7 @@ class BlockSender:
       print(e)
       
   def publishBlock(self, block):
-    self.channel.basic_publish(exchange='',
+    self.channel.basic_publish(exchange=self.config.rabbitExchange,
                           routing_key='',
                           body=block.data)
   def close(self):
