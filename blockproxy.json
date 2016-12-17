@@ -1,0 +1,13 @@
+{
+  "startFile": 0,
+  "startByte": 0,
+  "blockDir": "/bitcoin/.bitcoin/blocks",
+  "rabbit": {
+    "host": "rabbit",
+    "user": "bitcoin",
+    "password": "bitcoin",
+    "virtualHost": "/bitcoin",
+    "exchange": ""
+    
+  }
+}
