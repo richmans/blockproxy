@@ -3,6 +3,7 @@ BLOCK_MAGIC=3652501241
 
 class Config:
   def __init__(self, configfile):
+    self.data = {}
     self.configfile = configfile
     self.load()
   
@@ -17,10 +18,17 @@ class Config:
     config.close()
 
   def __getattr__(self, attr):
-    if attr in self.data:
+    if attr in self.__dict__:
+      return super().__setattr__(attr)
+    elif attr in self.data:
       return self.data[attr]
-    else:
-      raise AttributeError
+  
+  def __setattr__(self, attr, value):
+    if attr in self.__dict__ or attr in ['data', 'configfile']:
+      return super().__setattr__(attr, value)
+    if attr in self.data:
+      self.data[attr] = value
+      
 class Block:
   def __init__(self, magic, length, data, fromFile, fileOffset):
     self.magic = magic

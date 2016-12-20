@@ -54,7 +54,10 @@ class BlockDirWriter:
     print("Opening file %d" % number)
     filename = "blk%05d.dat" % number
     fullpath = os.path.join(self.config.blockDir, filename)
-    self.file = open(fullpath, 'wb+')
+    # mode r+b doesnt create a file, so lets doe that
+    if not os.path.isfile(fullpath):
+      open(fullpath, 'a').close()
+    self.file = open(fullpath, 'r+b')
     self.file.seek(offset)
  
   def close(self):

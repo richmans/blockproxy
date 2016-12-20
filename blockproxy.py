@@ -109,12 +109,13 @@ class BlockDir:
   def nextFile(self):
     self.close()
     self.number += 1
-    if self.maxNumber != None or (self.maxNumber != None and self.number <= self.maxNumber):
+    if self.maxNumber == None or (self.maxNumber != None and self.number <= self.maxNumber):
       self.open()
     
   def readBlock(self):
     if self.file == None: return None
     magic = self.readInt()
+    startOffset = self.offset
     if magic == None:
       self.nextFile()
       magic = self.readInt()
@@ -124,7 +125,7 @@ class BlockDir:
     data = self.file.read(length)
     self.blocks += 1
     self.offset = self.file.tell()
-    return Block(magic, length, data, self.number, self.offset)
+    return Block(magic, length, data, self.number, startOffset)
     
 class BlockProxy:
   def __init__(self, argv):
