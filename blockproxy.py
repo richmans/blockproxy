@@ -1,57 +1,53 @@
 #!/usr/bin/env python
-import json
 import time
 import os
 import struct
 import pip
+from blocklogic import *
+import sys
 try:
   import pika
 except:
   pip.main(['install', "pika"])
   import pika
-BLOCK_MAGIC=3652501241
+
 dirPath = os.path.dirname(os.path.realpath(__file__))
 configfile = os.path.join(dirPath, 'blockproxy.json')
 
-class Config:
-  def __init__(self):
-    self.load()
-  
-  def load(self):
-    config = open(configfile)
-    data = json.load(config)
-    self.startFile = data["startFile"]
-    self.startByte = data["startByte"]
-    self.blockDir = data["blockDir"]
-    self.rabbitHost = data["rabbit"]["host"]
-    self.rabbitUser = data["rabbit"]["user"]
-    self.rabbitPassword = data["rabbit"]["password"]
-    self.rabbitVirtualHost = data["rabbit"]["virtualHost"]
-    self.rabbitExchange = data["rabbit"]["exchange"]
-    config.close()
-    
-  def save(self):
-    data = {
-      "startFile": self.startFile,
-      "startByte": self.startByte,
-      "blockDir": self.blockDir,
-      "rabbit": {
-        "host": self.rabbitHost,
-        "user": self.rabbitUser,
-        "password": self.rabbitPassword,
-        "virtualHost": self.rabbitVirtualHost,   
-        "exchange": self.rabbitExchange 
-      }
-    }
-    config = open(configfile, 'w')
-    json.dump(data, config)
-    config.close()
 
+class RateLimiter:
+  def __init__(self, config):
+    self.maxRate = config.maxMbytePerSec * 1024 * 1024
+    self.maxBlocks = config.maxBlocksPerSec
+    self.rateCheckInterval = config.rateCheckInterval
+    self.reset()
+
+  def milliTime(self):
+    return int(round(time.time() * 1000))
+    
+  def reset(self):
+    self.lastRateReset = self.milliTime()
+    self.bytesSinceLastReset = 0
+    self.blocksSinceLastReset = 0
+  
+  def checkRate(self, lenBytes):
+    currentTime = self.milliTime()
+    if (currentTime - self.lastRateReset > self.rateCheckInterval):
+      self.reset()
+    maxBytes = self.maxRate * int(self.rateCheckInterval / 1000)
+    maxBlocks = self.maxBlocks * int(self.rateCheckInterval / 1000)
+    if self.bytesSinceLastReset > maxBytes or self.blocksSinceLastReset > maxBlocks:
+      sleepTime = float((self.lastRateReset + self.rateCheckInterval) - currentTime) / 1000
+      time.sleep(sleepTime)
+    self.bytesSinceLastReset += lenBytes
+    self.blocksSinceLastReset += 1
+    
 class BlockSender:
   def __init__(self, config):
     self.config = config
-    self.start()
-  
+    self.started = False
+    self.rateLimiter = RateLimiter(config)
+    
   def start(self):
     try:
       credentials = pika.PlainCredentials(self.config.rabbitUser, self.config.rabbitPassword)
@@ -61,35 +57,24 @@ class BlockSender:
                      self.config.rabbitVirtualHost,
                      credentials))
       self.channel = self.connection.channel()
+      self.started = True
     except Exception as e:
-      print(e)
-      
+      print("Rabbit connection error: " + str(type(e)))
+  
+  
   def publishBlock(self, block):
+    self.rateLimiter.checkRate(len(block.data))
+    key = struct.pack("<II",  block.fromFile, block.fileOffset)
     self.channel.basic_publish(exchange=self.config.rabbitExchange,
-                          routing_key='',
-                          body=block.data)
+                          routing_key=self.config.rabbitRoutingKey,
+                          body=key + block.data)
   def close(self):
     self.connection.close()
-
-class Block:
-  def __init__(self, magic, length, data):
-    self.magic = magic
-    self.length = length
-    self.data = data
-    
-  def verify(self):
-    if self.magic != BLOCK_MAGIC:
-      print("No magic! %d != %d" % (self.magic, BLOCK_MAGIC))
-      return False
-      
-    if self.length == 0 or self.length != len(self.data):
-      print("Length is no good!")
-      return False
-    return True
       
 class BlockDir:
-  def __init__(self, config, number, offset):
+  def __init__(self, config, number, offset, maxNumber=None):
     self.number = number
+    self.maxNumber = maxNumber
     self.blocks = 0
     self.config = config
     self.open(offset)
@@ -110,6 +95,7 @@ class BlockDir:
     print("Closing file %d, read %d blocks" % (self.number, self.blocks))
     if self.file != None:
       self.file.close()
+      self.file = None
   
   def readInt(self):
     if self.file == None:
@@ -123,9 +109,11 @@ class BlockDir:
   def nextFile(self):
     self.close()
     self.number += 1
-    self.open()
+    if self.maxNumber != None or (self.maxNumber != None and self.number <= self.maxNumber):
+      self.open()
     
   def readBlock(self):
+    if self.file == None: return None
     magic = self.readInt()
     if magic == None:
       self.nextFile()
@@ -136,14 +124,27 @@ class BlockDir:
     data = self.file.read(length)
     self.blocks += 1
     self.offset = self.file.tell()
-    return Block(magic, length, data)
+    return Block(magic, length, data, self.number, self.offset)
     
 class BlockProxy:
-  def __init__(self):
-    self.config = Config()
-    self.currentFile = self.config.startFile
-    self.currentOffset = self.config.startByte
+  def __init__(self, argv):
+    self.config = Config(configfile)
+    self.stopping = False
+    self.singleFile = len(argv) > 1
+    if self.singleFile:
+      print("Single file mode")
+      self.currentFile = int(argv[1])
+      self.currentOffset = 0
+      self.maxFile = self.currentFile
+    else:
+      self.currentFile = self.config.startFile
+      self.currentOffset = self.config.startByte
+      self.maxFile = None
+    
     self.sender = BlockSender(self.config)
+    while self.sender.started == False:
+      self.sender.start()
+      time.sleep(10)
     self.blocksSinceSave = 0
   
   def updateConfig(self):
@@ -152,7 +153,7 @@ class BlockProxy:
     self.config.save()
     
   def handleBlocks(self):
-    blockDir = BlockDir(self.config, self.currentFile, self.currentOffset)
+    blockDir = BlockDir(self.config, self.currentFile, self.currentOffset, self.maxFile)
     while True:
       block = blockDir.readBlock()
       if(block == None): break
@@ -173,4 +174,4 @@ class BlockProxy:
       self.handleBlocks()
       time.sleep(10)
 
-BlockProxy().start()
+BlockProxy(sys.argv).start()

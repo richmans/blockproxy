@@ -1,13 +1,14 @@
 {
-  "startFile": 0,
-  "startByte": 0,
-  "blockDir": "/bitcoin/.bitcoin/blocks",
-  "rabbit": {
-    "host": "rabbit",
-    "user": "bitcoin",
-    "password": "bitcoin",
-    "virtualHost": "/bitcoin",
-    "exchange": ""
-    
-  }
+  "blockDir": "/bitcoin/.bitcoin/blocks", 
+  "maxMbytePerSec": 20, 
+  "maxBlocksPerSec": 200,
+  "rabbitExchange": "", 
+  "rabbitHost": "rabbit", 
+  "rabbitPassword": "bitcoin", 
+  "rabbitRoutingKey": "bitcoin", 
+  "rabbitUser": "bitcoin", 
+  "rabbitVirtualHost": "/bitcoin", 
+  "rateCheckInterval": 10000, 
+  "startByte": 0, 
+  "startFile": 0
 }

@@ -1,0 +1,9 @@
+{
+  "blockDir": "/bitcoin/.bitcoin/blocks",
+  "rabbitHost": "rabbit",
+  "rabbitUser": "bitcoin",
+  "rabbitPassword": "bitcoin",
+  "rabbitVirtualHost": "/bitcoin",
+  "rabbitExchange": "",
+  "rabbitQueue": "bitcoin"
+}
