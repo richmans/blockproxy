@@ -118,6 +118,7 @@ class BlockDir:
     startOffset = self.offset
     if magic == None:
       self.nextFile()
+      startOffset = 0
       magic = self.readInt()
     if magic == None or magic == 0:
       return None
